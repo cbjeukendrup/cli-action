@@ -7,24 +7,84 @@ inputs:
   version:
     description: The version of the Transifex CLI to use
     required: true
-    default: 'latest'
+    default: "latest"
   args:
     description: What arguments to pass to the CLI
     required: true
-    default: 'push'
+    default: "push"
   token:
     description: Transifex API token to use
     required: true
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - name: Create temporary directory to store the CLI
-      run: mkdir -p /tmp/tx
-      shell: bash
     - name: Download the CLI
-      run: curl -o- https://raw.githubusercontent.com/transifex/cli/master/install.sh | bash -s -- ${{ inputs.version }}
-      working-directory: /tmp/tx
+      if: ${{ hashFiles('$RUNNER_TEMP/tx/tx') == '' }}
       shell: bash
+      env:
+        TX_VERSION: ${{ inputs.version }}
+      run: |
+        mkdir -p $RUNNER_TEMP/tx
+        cd $RUNNER_TEMP/tx
+
+        OS=
+        EXTENSION=
+        case $RUNNER_OS in
+        "Linux")
+            OS="linux"
+            EXTENSION="tar.gz"
+            ;;
+        "macOS")
+            OS="darwin"
+            EXTENSION="tar.gz"
+            ;;
+        "Windows")
+            OS="windows"
+            EXTENSION="zip"
+            ;;
+        *)
+            echo "Unknown OS: $RUNNER_OS"
+            exit 1
+            ;;
+        esac
+
+        ARCH=
+        case $RUNNER_ARCH in
+        "X64")
+            ARCH="amd64"
+            ;;
+        "ARM64")
+            ARCH="arm64"
+            ;;
+        *)
+            echo "Unknown ARCH: $RUNNER_ARCH"
+            exit 1
+            ;;
+        esac
+
+        if [ $TX_VERSION == "latest" ]; then
+            URL="https://github.com/transifex/cli/releases/latest/download/tx-$OS-$ARCH.$EXTENSION"
+        else
+            URL="https://github.com/transifex/cli/releases/download/$TX_VERSION/tx-$OS-$ARCH.$EXTENSION"
+        fi
+
+        case "$EXTENSION" in
+        "tar.gz")
+            if tar --version | grep -q 'gnu'; then
+                curl -L "$URL" | tar xz --skip-old-files
+            else
+                curl -L "$URL" | tar kxz
+            fi
+            ;;
+        "zip")
+            curl -L "$URL" -o tx.zip
+            unzip tx.zip
+            ;;
+        esac
+
+        echo "tx installed to $(pwd). Version:"
+        ./tx --version
+
     - name: Invoke the CLI with the provided token and arguments
-      run: /tmp/tx/tx --token ${{ inputs.token }} ${{ inputs.args }}
       shell: bash
+      run: $RUNNER_TEMP/tx/tx --token ${{ inputs.token }} ${{ inputs.args }}
